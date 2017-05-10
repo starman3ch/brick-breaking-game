@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+<title>HTML5 Canvas 벽돌깨기</title>
+<style type="text/css">
+	canvas { border: 1px solid black; }
+</style>
+
+<script type="text/javascript">
+	// ------------------
+	// 5단계 벽돌 만들기
+	// 벽돌을 여러개 만들고 공이 부딪혔을 때 벽돌이 사라지며 공의 방향이 바뀜. 
+	// ------------------
+	
+	if (!Game) {
+		var Game = {};
+	}
+	
+	// -----------------
+	// 게임엔진 생성자 함수
+	// -----------------
+	Game.Engine = function(option) {
+		var ctx;
+		var canvas = document.getElementById('gameCanvas');
+		ctx = canvas.getContext('2d');
+		
+		// 원을 그리는 함수
+		var circle = function(x, y, r) {
+			ctx.beginPath();
+			ctx.arc(x, y, r, 0, Math.PI * 2, true);
+			ctx.closePath();
+			ctx.fill();
+		}
+		
+		// 사각형을 그리는 함수
+		var rect = function(x, y, w, h) {
+			ctx.beginPath();
+			ctx.rect(x, y, w, h);
+			ctx.closePath();
+			ctx.fill();
+		}
+		
+		// 화면을 지우는 함수
+		var clearRect = function() {
+			ctx.clearRect(0, 0, 300, 300);
+		}
+		
+		// 입력된 옵션을 저장한다.
+		this.option = option;
+		
+		// 공 인스턴스를 생성하고 옵션에 따라 초기화 한다.
+		var ball = new Game.Ball(option.ball.x, option.ball.y, 3, 2, option.ball.r, this);
+		
+		// 벽 인스턴스 생성
+		var border = new Game.Border(option.border.width, option.border.height, this);
+		
+		// 막대 인스턴스를 생성
+		var paddle = new Game.Paddle(border, this);
+		
+		// ** 벽돌 인스턴스들을 생성.
+		var brickCount = 12;
+		var bricks = [];
+		var x = 10, y = 10, width = 70, height = 10;
+		while(brickCount--) {
+			bricks.push(new Game.Brick(x, y, width, height));
+			// 벽돌을 만들고 다음벽돌은 2px 간격을 벌린다.
+			x = x + width + 2;
+			// 벽돌이 한 라인을 다 채웠으면 다음 라인에서 만들기 위하여 x,y를 조정한다.
+			if (x + width + 2 > border.width) {
+				x = 10;
+				y = y + height + 1;
+			}
+		}
+		
+		// 화면을 그리는 함수
+		this.draw = function() {
+			// 화면을 지운다.
+			clearRect();
+			// 공을 그린다.
+			circle(ball.x, ball.y, ball.r);
+			// 막대를 그린다.
+			rect(paddle.x, paddle.y, paddle.width, paddle.height);
+			
+			// ** 벽돌들을 그린다.
+			for (var i = bricks.length - 1; i >= 0; i--) {
+				rect(bricks[i].x, bricks[i].y, bricks[i].width, bricks[i].height);
+			}
+			
+			// 공이 벽에 부딪힌 경우 공의 방향을 재설정한다.
+			border.inbounds(ball);
+			// 공이 막대에 도달한 경우 공을 되돌리기 위하여 방향을 재설정한다.
+			paddle.inbounds(ball);
+			
+			// ** 공이 벽돌에 부딪힌 경우 벽돌을 배열에서 제거한다.
+			for (var i = bricks.length - 1; i >= 0; i--) {
+				if (bricks[i].inbounds(ball)) {
+					bricks.splice(i, 1);
+					break;
+				}
+			}
+			
+			// 막대를 키 이벤트에 따라 움직이게 하기 위하여 막대의 위치를 변경한다.
+			paddle.applyNextPosition();
+			// 공의 위치를 변경한다.
+			ball.applyNextPosition();
+		}
+	};
+	
+	Game.Engine.prototype = {
+		start: function(){
+			this.timer = setInterval(this.draw, this.option.gameSpeed);
+		},
+		pause: function(){
+			clearInterval(this.timer);
+		},
+		stop: function(){
+			clearInterval(this.timer);
+		}
+	};
+	
+	// -----------------
+	// 공 생성자 함수
+	// -----------------
+	Game.Ball = function(x, y, dx, dy, r, engine) {
+		this.x = x; // 현재 공이 위치하는 X좌표
+		this.y = y; // 현재 공이 위치하는 Y좌표
+		this.changeHorizontalSpeed(dx); // 공이 좌우로 이동해야 하는 스피드
+		this.changeVerticalSpeed(dy); // 공이 상하로 이동해야 하는 스피드
+		this.r = r; // 공의 반지름
+		this.directionX = -1; // 공의 좌우 이동방향 1:우측, -1:좌측
+		this.directionY = -1; // 공의 상하 이동방향 1:하단, -1:상단
+	}
+	
+	Game.Ball.prototype = {
+		// 공이 다음단계에 위치할 X,Y좌표
+		getNextPosition: function(){
+			return {
+				x: this.x + this.dx * this.directionX,
+				y: this.y + this.dy * this.directionY
+			};
+		},
+		
+		// 공을 다음단계의 위치로 이동시킴
+		applyNextPosition: function(){
+			this.x = this.x + this.dx * this.directionX;
+			this.y = this.y + this.dy * this.directionY;
+		},
+		
+		// 상하로 이동하는 스피드 설정
+		changeVerticalSpeed: function(speed){
+			if (speed > 5) speed = 5;
+			if (speed < 1) speed = 1;
+			this.dy = speed;
+		},
+		
+		// 좌우로 이동하는 스피드 설정
+		changeHorizontalSpeed: function(speed){
+			if (speed > 5) speed = 5;
+			if (speed < 1) speed = 1;
+			this.dx = speed;
+		},
+		
+		// 좌우방향 전환
+		toggleDirectionX: function(){
+			this.directionX = this.directionX * -1;
+		},
+		
+		// 상하방향 전환
+		toggleDirectionY: function(){
+			this.directionY = this.directionY * -1;
+		}
+	};
+	
+	// -----------------
+	// 벽 생성자 함수
+	// -----------------
+	Game.Border = function(width, height, engine) {
+		this.width = width;
+		this.height = height;
+		this.engine = engine;
+	}
+	
+	Game.Border.prototype = {
+		// 공이 벽에 부딛혔을 경우 반사되게 공의 방향을 변경함.
+		// 아래쪽 벽에 부딛힌 경우 게임이 종료됨.
+		inbounds : function(ball){
+			var result = true; //공이 계속 진행할 지 여부.
+			var position = ball.getNextPosition(); // 공의 다음 위치를 미리 계산하여 가지고 옴.
+			
+			// 공이 오른쪽 벽에 부딧힌 경우 또는 공이 왼쪽 벽에 부딧힌 경우
+			// 공의 좌우 이동방향을 변경한다.
+			if (position.x + ball.r > this.width
+					|| position.x - ball.r < 0) {
+				ball.toggleDirectionX();
+				result = false;
+			}
+			
+			// 공이 위쪽 벽에 부딧힌 경우 공의 상하 이동방향을 변경한다.
+			if (position.y - ball.r < 0) {
+				ball.toggleDirectionY();
+				result = false;
+			}
+			
+			// 공이 아래쪽 벽에 부딧힌 경우 게임을 종료한다. 
+			if (position.y > this.height) {
+				this.engine.stop(); // border 객체에 설정되어 있어야 사용가능.
+			}
+			return result;
+		}
+	};
+	
+	// -----------------
+	// 막대 생성자 함수
+	// -----------------
+	Game.Paddle = function(border, engine) {
+		this.x = 100; // 막대 x좌표
+		this.y = border.height - 20;
+		this.width = 100;
+		this.height = 10;
+		this.dx = 0; // 막대의 x축 증감
+		this.borderWidth = border.width;
+		
+		var paddle = this;
+		
+		// 키를 눌렀을 때 이벤트
+		document.onkeydown = function(evt) {
+			if (evt.keyCode == 39) paddle.moveRight();
+			else if (evt.keyCode == 37) paddle.moveLeft();
+		};
+		// 키를 뗄 때 이벤트
+		document.onkeyup = function(evt) {
+			if (evt.keyCode == 39 || evt.keyCode == 37) paddle.stop();
+		}
+	}
+	
+	Game.Paddle.prototype = {
+		moveLeft : function() {
+			this.dx = -10;
+		},
+		moveRight : function() {
+			this.dx = 10;
+		},
+		stop : function() {
+			this.dx = 0;
+		},
+		applyNextPosition : function() {
+			// 막대가 오른쪽 끝까지 이동한 경우 더이상 이동하지 않는다.
+			if (this.dx > 0 && this.x + this.width > this.borderWidth) {
+				return;
+			}
+			// 막대가 왼쪽 끝까지 이동한 경우 더이상 이동하지 않는다.
+			if (this.dx < 0 && this.x < 0) {
+				return;
+			}
+			// 막대의 x좌표를 x축 증감 속도만큼 더한다.
+			this.x = this.x + this.dx;
+		},
+		// 공이 막대에 도달한 경우 방향을 변경한다.
+		inbounds : function(ball) {
+			var position = ball.getNextPosition();
+			// 공이 막대의 범위에 있는지 체크한다.(x범위, y범위)
+			if ((position.x + ball.r > this.x && position.x < this.x + this.width + ball.r) 
+					&& (position.y + ball.r > this.y && position.y < this.y + this.height + ball.r)) {
+				
+				// 공이 막대 왼쪽 또는 오른쪽 사이드에 있는 경우 공의 x방향이 변경됨.
+				if (!(ball.x - ball.r > this.x && ball.x < this.x + this.width - ball.r)) {
+					ball.toggleDirectionX();
+					return true;
+				}
+				// 공이 막대 위, 아래 사이드에 있는 경우 y방향이 변경됨.
+				if (!(ball.y - ball.r > this.y && ball.y < this.y + this.height - ball.r)) {
+					ball.toggleDirectionY();
+					return true;
+				}
+			}
+			return false;
+		}
+	};
+	
+	// -----------------
+	// *** 벽돌 생성자 함수
+	// -----------------
+	Game.Brick = function(x, y, width, height) {
+		this.x = x;
+		this.y = y;
+		this.width = width;
+		this.height = height;
+	}
+	
+	Game.Brick.prototype = {
+		// 막대의 inbounds원리와 같음.
+		inbounds : function(ball) {
+			var position = ball.getNextPosition();
+			// 공이 막대의 범위에 있는지 체크한다.(x범위, y범위)
+			if ((position.x + ball.r > this.x && position.x < this.x + this.width + ball.r) 
+					&& (position.y + ball.r > this.y && position.y < this.y + this.height + ball.r)) {
+				
+				// 공이 막대 왼쪽 또는 오른쪽 사이드에 있는 경우 공의 x방향이 변경됨.
+				if (!(ball.x - ball.r > this.x && ball.x < this.x + this.width - ball.r)) {
+					ball.toggleDirectionX();
+					return true;
+				}
+				// 공이 막대 위, 아래 사이드에 있는 경우 y방향이 변경됨.
+				if (!(ball.y - ball.r > this.y && ball.y < this.y + this.height - ball.r)) {
+					ball.toggleDirectionY();
+					return true;
+				}
+				return true;
+			}
+			return false;
+		}
+	};
+	
+	// -----------------
+	// 게임 시작하기
+	// -----------------
+	var game;
+	window.onload = function(){
+		game = new Game.Engine({
+			ball : {
+				x : 200,
+				y : 150,
+				r : 10
+			},
+			border : {
+				width : 300,
+				height : 300
+			},
+			gameSpeed : 10
+		});
+		game.start();
+	}
+</script>
+</head>
+<body>
+<canvas id="gameCanvas" height="300" width="300"></canvas>
+</body>
+</html>
